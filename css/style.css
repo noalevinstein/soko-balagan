@@ -313,3 +313,100 @@ kbd {
 @keyframes pop {
   from { transform: translate(-50%, -50%) scale(0.8); opacity: 0; }
 }
+
+.hint em {
+  color: var(--accent);
+  font-style: normal;
+}
+
+.win .map {
+  margin-top: 10px;
+  font-size: 13px;
+  white-space: pre;
+  color: var(--text);
+}
+
+.log {
+  left: 16px;
+  bottom: 16px;
+  width: 250px;
+  padding: 10px 12px;
+}
+
+.log h2 {
+  margin: 0 0 6px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--muted);
+}
+
+.log ol {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 3px;
+  font-size: 12px;
+}
+
+.log li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.log li:first-child {
+  animation: log-in 0.25s ease-out;
+}
+
+.log li:not(:first-child) {
+  opacity: 0.6;
+}
+
+.log li.note {
+  color: var(--gold);
+}
+
+.log .n {
+  width: 28px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.log kbd {
+  min-width: 20px;
+  text-align: center;
+  font-size: 13px;
+}
+
+.log .k {
+  width: 38px;
+}
+
+.log .out {
+  margin-left: auto;
+  color: var(--muted);
+}
+
+.log .out[data-outcome='blocked'],
+.log .out[data-outcome='dropped'] {
+  color: #ff8a8a;
+}
+
+.log .out[data-outcome='push'] {
+  color: var(--gold);
+}
+
+@keyframes log-in {
+  from { transform: translateX(-8px); opacity: 0; }
+}
+
+@media (max-width: 1100px) {
+  .log { bottom: 80px; width: 220px; }
+}
+
+@media (max-width: 640px) {
+  .log { display: none; }
+}

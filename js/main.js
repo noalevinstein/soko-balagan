@@ -13,6 +13,8 @@
     pushes: document.getElementById('pushes'),
     win: document.getElementById('win'),
     winStats: document.getElementById('win-stats'),
+    winMap: document.getElementById('win-map'),
+    log: document.getElementById('input-log'),
   };
   const game = new SB.Game(SB.LEVELS[0]);
   const renderer = new SB.IsoRenderer(canvas, game.level);
@@ -21,7 +23,59 @@
     hud.moves.textContent = game.moves;
     hud.pushes.textContent = game.pushes;
     hud.win.hidden = !game.won;
-    if (game.won) hud.winStats.textContent = `${game.moves} moves · ${game.pushes} pushes`;
+    if (game.won) {
+      hud.winStats.textContent = `${game.moves} moves · ${game.pushes} pushes`;
+      hud.winMap.textContent = SB.DIRECTION_KEYS.map((k) => `${GLYPH[k]} was ${GLYPH[game.controls[k]]}`).join('   ');
+    }
+  }
+
+  // ------------------------------------------------------------- input log
+  // Shows only which key was physically pressed and what happened — never
+  // the direction it mapped to. Working that out is the game.
+  const GLYPH = { up: '↑', down: '↓', left: '←', right: '→' };
+  const KEY_LABEL = { up: 'Up', down: 'Down', left: 'Left', right: 'Right' };
+  const OUTCOME = {
+    move: 'moved',
+    fall: 'dropped',
+    push: 'pushed',
+    jump: 'jumped',
+    blocked: 'bumped',
+    dropped: 'too fast — ignored',
+    queued: '…',
+  };
+  const LOG_SIZE = 8;
+  let pressCount = 0;
+
+  function logNote(text) {
+    const li = document.createElement('li');
+    li.className = 'note';
+    li.textContent = text;
+    hud.log.prepend(li);
+    trimLog();
+  }
+
+  function logPress(key) {
+    const li = document.createElement('li');
+    li.innerHTML = `<span class="n">#${++pressCount}</span><kbd>${GLYPH[key]}</kbd><span class="k">${KEY_LABEL[key]}</span><span class="out"></span>`;
+    hud.log.prepend(li);
+    trimLog();
+    return li;
+  }
+
+  function setOutcome(li, outcome) {
+    const el = li.querySelector('.out');
+    el.textContent = OUTCOME[outcome];
+    el.dataset.outcome = outcome;
+  }
+
+  function trimLog() {
+    while (hud.log.children.length > LOG_SIZE) hud.log.lastElementChild.remove();
+  }
+
+  function resetLog() {
+    hud.log.textContent = '';
+    pressCount = 0;
+    logNote('Controls scrambled! Find out what each arrow does.');
   }
 
   // --------------------------------------------------------- state machine
@@ -42,20 +96,36 @@
     updateHud();
   }
 
-  function requestMove(screenDir) {
+  /** A physical direction key was pressed: log it, then play its action. */
+  function pressKey(key) {
     if (state === State.WON) return;
+    const entry = logPress(key);
     if (state === State.ANIMATING) {
-      if (queue.length < MAX_QUEUE) queue.push(screenDir);
+      if (queue.length < MAX_QUEUE) {
+        queue.push({ key, entry });
+        setOutcome(entry, 'queued');
+      } else {
+        setOutcome(entry, 'dropped');
+      }
       return;
     }
-    // Arrow keys are camera-relative: Up moves up-right on screen, Right
+    requestMove(key, entry);
+  }
+
+  function requestMove(key, entry) {
+    // Chaos: the key's meaning comes from this level's shuffled mapping.
+    const action = game.controls[key];
+    // Directions are camera-relative: 'up' moves up-right on screen, 'right'
     // moves down-right, etc. Convert from rotated view space to world space.
+    const screenDir = ACTION_DIRS[action];
     const [dx, dy] = SB.rotateDir(screenDir[0], screenDir[1], (4 - renderer.rot) % 4);
     const res = game.tryMove(dx, dy);
     if (!res.moved) {
+      setOutcome(entry, 'blocked');
       renderer.build(); // the player may have turned to face the obstacle
       return;
     }
+    setOutcome(entry, res.action);
     // Longer drops take longer to fall.
     const drop = Math.max(0, ...res.moves.map((m) => m.from.z - m.obj.z));
     enter(State.ANIMATING);
@@ -66,11 +136,20 @@
     enter(game.won ? State.WON : State.IDLE);
     if (state !== State.IDLE) queue = [];
     // Blocked moves don't animate, so keep draining until one does.
-    while (state === State.IDLE && queue.length) requestMove(queue.shift());
+    while (state === State.IDLE && queue.length) {
+      const { key, entry } = queue.shift();
+      requestMove(key, entry);
+    }
+    for (const { entry } of queue.splice(0)) setOutcome(entry, 'dropped');
+  }
+
+  function clearQueue() {
+    for (const { entry } of queue) setOutcome(entry, 'dropped');
+    queue = [];
   }
 
   function undo() {
-    queue = [];
+    clearQueue();
     renderer.cancelAnimation();
     game.undo();
     renderer.build();
@@ -78,19 +157,24 @@
   }
 
   function restart() {
-    queue = [];
-    game.restart();
+    clearQueue();
+    game.restart(); // reshuffles the controls
     renderer.setLevel(game.level);
+    resetLog();
     enter(State.IDLE);
   }
 
-  const SCREEN_DIRS = {
-    ArrowUp: [0, -1], KeyW: [0, -1],
-    ArrowDown: [0, 1], KeyS: [0, 1],
-    ArrowLeft: [-1, 0], KeyA: [-1, 0],
-    ArrowRight: [1, 0], KeyD: [1, 0],
+  // Physical keys → logical direction keys. WASD shares the arrows'
+  // scrambled mapping so it can't be used to dodge the chaos.
+  const KEYS = {
+    ArrowUp: 'up', KeyW: 'up',
+    ArrowDown: 'down', KeyS: 'down',
+    ArrowLeft: 'left', KeyA: 'left',
+    ArrowRight: 'right', KeyD: 'right',
   };
+  const ACTION_DIRS = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] };
 
+  resetLog();
   enter(State.IDLE);
 
   window.addEventListener('keydown', (e) => {
@@ -101,10 +185,10 @@
     }
     if (e.ctrlKey || e.metaKey) return;
 
-    if (SCREEN_DIRS[e.code]) {
+    if (KEYS[e.code]) {
       e.preventDefault();
       hideTooltip();
-      return requestMove(SCREEN_DIRS[e.code]);
+      return pressKey(KEYS[e.code]);
     }
     switch (e.code) {
       case 'KeyZ':

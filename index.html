@@ -12,7 +12,7 @@
 
     <header class="hud title">
       <h1>Soko<span>Balagan</span></h1>
-      <p>Phase 3 · physics &amp; jumping</p>
+      <p>Phase 4 · chaos controls</p>
       <dl class="stats">
         <div><dt>Moves</dt><dd id="moves">0</dd></div>
         <div><dt>Pushes</dt><dd id="pushes">0</dd></div>
@@ -53,15 +53,21 @@
     </nav>
 
     <p class="hud hint">
-      <kbd>↑↓←→</kbd>/<kbd>WASD</kbd> move · <kbd>Z</kbd> undo · <kbd>R</kbd> restart · <kbd>Q</kbd><kbd>E</kbd> rotate ·
+      <kbd>↑↓←→</kbd>/<kbd>WASD</kbd> move <em>(scrambled!)</em> · <kbd>Z</kbd> undo · <kbd>R</kbd> restart · <kbd>Q</kbd><kbd>E</kbd> rotate ·
       drag to pan · scroll to zoom
     </p>
 
     <section id="win" class="hud win" hidden aria-live="polite">
       <h2>Solved!</h2>
       <p id="win-stats"></p>
+      <p id="win-map" class="map"></p>
       <p class="muted">Press <kbd>Z</kbd> to undo or <kbd>R</kbd> to play again</p>
     </section>
+
+    <aside class="hud log" aria-label="Input log">
+      <h2>Input log</h2>
+      <ol id="input-log" aria-live="polite"></ol>
+    </aside>
 
     <div id="tooltip" class="tooltip" hidden></div>
 

@@ -17,20 +17,44 @@
  *                   top of an object): climb on top of it.
  *   4. Otherwise blocked (walls, tall stacks, two boxes in a row, ...).
  * The level is solved when every target tile has a box resting on it.
+ *
+ * Chaos: every time a level starts (or restarts), the four direction keys
+ * are shuffled so that no key does what it says. The mapping stays fixed
+ * until the next restart — undo does not reshuffle it.
  */
 (function () {
   'use strict';
   const SB = (window.SokoBalagan = window.SokoBalagan || {});
 
   const JUMP_HEIGHT = 1;
+  const DIRECTION_KEYS = ['up', 'down', 'left', 'right'];
+
+  /**
+   * Random key → action mapping where no key maps to itself (a derangement),
+   * e.g. { up: 'left', down: 'right', left: 'down', right: 'up' }.
+   */
+  function shuffleControls(rng = Math.random) {
+    let perm;
+    do {
+      perm = [...DIRECTION_KEYS];
+      for (let i = perm.length - 1; i > 0; i--) {
+        const j = Math.floor(rng() * (i + 1));
+        [perm[i], perm[j]] = [perm[j], perm[i]];
+      }
+    } while (perm.some((action, i) => action === DIRECTION_KEYS[i]));
+    return Object.fromEntries(DIRECTION_KEYS.map((key, i) => [key, perm[i]]));
+  }
 
   class Game {
-    constructor(def) {
+    /** `opts.rng` lets tests make the chaos mapping deterministic. */
+    constructor(def, opts = {}) {
       this.def = def;
+      this.rng = opts.rng || Math.random;
       this.restart();
     }
 
     restart() {
+      this.controls = shuffleControls(this.rng);
       this.level = SB.parseLevel(this.def);
       this.moves = 0;
       this.pushes = 0;
@@ -195,4 +219,6 @@
   }
 
   SB.Game = Game;
+  SB.shuffleControls = shuffleControls;
+  SB.DIRECTION_KEYS = DIRECTION_KEYS;
 })();
