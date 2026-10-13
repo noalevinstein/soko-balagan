@@ -12,7 +12,11 @@
 
     <header class="hud title">
       <h1>Soko<span>Balagan</span></h1>
-      <p>Phase 1 · renderer preview</p>
+      <p>Phase 2 · push the boxes</p>
+      <dl class="stats">
+        <div><dt>Moves</dt><dd id="moves">0</dd></div>
+        <div><dt>Pushes</dt><dd id="pushes">0</dd></div>
+      </dl>
     </header>
 
     <aside class="hud legend" aria-label="Legend">
@@ -34,8 +38,11 @@
     </aside>
 
     <nav class="hud toolbar" aria-label="Camera">
-      <button data-action="rotate-left" title="Rotate view left">⟲</button>
-      <button data-action="rotate-right" title="Rotate view right">⟳</button>
+      <button data-action="undo" class="text" title="Undo (Z)">Undo</button>
+      <button data-action="restart" class="text" title="Restart (R)">Restart</button>
+      <span class="sep"></span>
+      <button data-action="rotate-left" title="Rotate view left (Q)">⟲</button>
+      <button data-action="rotate-right" title="Rotate view right (E)">⟳</button>
       <span class="sep"></span>
       <button data-action="zoom-out" title="Zoom out">−</button>
       <button data-action="zoom-in" title="Zoom in">+</button>
@@ -45,11 +52,21 @@
       <button data-action="heights" class="text" aria-pressed="false">Heights</button>
     </nav>
 
-    <p class="hud hint">Drag to pan · scroll to zoom · hover a tile to inspect</p>
+    <p class="hud hint">
+      <kbd>↑↓←→</kbd>/<kbd>WASD</kbd> move · <kbd>Z</kbd> undo · <kbd>R</kbd> restart · <kbd>Q</kbd><kbd>E</kbd> rotate ·
+      drag to pan · scroll to zoom
+    </p>
+
+    <section id="win" class="hud win" hidden aria-live="polite">
+      <h2>Solved!</h2>
+      <p id="win-stats"></p>
+      <p class="muted">Press <kbd>Z</kbd> to undo or <kbd>R</kbd> to play again</p>
+    </section>
 
     <div id="tooltip" class="tooltip" hidden></div>
 
     <script src="js/level.js"></script>
+    <script src="js/game.js"></script>
     <script src="js/renderer.js"></script>
     <script src="js/main.js"></script>
   </body>

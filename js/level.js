@@ -65,6 +65,7 @@
       if (!heights[o.y] || !heights[o.y][o.x]) {
         throw new Error(`Level "${def.name}": ${o.kind} at (${o.x},${o.y}) has no ground under it`);
       }
+      o.z = heights[o.y][o.x]; // base height; objects start resting on the ground
     }
 
     return {

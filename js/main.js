@@ -1,6 +1,6 @@
 /*
- * SokoBalagan — Phase 1 bootstrap: renders a static level and wires up the
- * camera (rotate / zoom / pan) and a hover inspector. No game logic yet.
+ * SokoBalagan — bootstrap: wires the game rules to the renderer, keyboard
+ * input, the camera (rotate / zoom / pan), the HUD and a hover inspector.
  */
 (function () {
   'use strict';
@@ -8,8 +8,80 @@
 
   const canvas = document.getElementById('stage');
   const tooltip = document.getElementById('tooltip');
-  const level = SB.parseLevel(SB.LEVELS[0]);
-  const renderer = new SB.IsoRenderer(canvas, level);
+  const hud = {
+    moves: document.getElementById('moves'),
+    pushes: document.getElementById('pushes'),
+    win: document.getElementById('win'),
+    winStats: document.getElementById('win-stats'),
+  };
+  const game = new SB.Game(SB.LEVELS[0]);
+  const renderer = new SB.IsoRenderer(canvas, game.level);
+
+  function updateHud() {
+    hud.moves.textContent = game.moves;
+    hud.pushes.textContent = game.pushes;
+    hud.win.hidden = !game.won;
+    if (game.won) hud.winStats.textContent = `${game.moves} moves · ${game.pushes} pushes`;
+  }
+  updateHud();
+
+  // ----------------------------------------------------------------- input
+  // Arrow keys are camera-relative: in screen terms Up moves up-right,
+  // Right moves down-right, etc. — the two iso axes.
+  const SCREEN_DIRS = {
+    ArrowUp: [0, -1], KeyW: [0, -1],
+    ArrowDown: [0, 1], KeyS: [0, 1],
+    ArrowLeft: [-1, 0], KeyA: [-1, 0],
+    ArrowRight: [1, 0], KeyD: [1, 0],
+  };
+
+  function move(screenDir) {
+    renderer.finishAnimation();
+    const [dx, dy] = SB.rotateDir(screenDir[0], screenDir[1], (4 - renderer.rot) % 4);
+    const res = game.tryMove(dx, dy);
+    if (res.moved) renderer.animate(res.moves, res.moves.some((m) => m.from.z > m.obj.z) ? 260 : 140);
+    else renderer.build(); // the player may have turned to face the wall
+    updateHud();
+  }
+
+  function undo() {
+    if (game.undo()) renderer.build();
+    renderer.finishAnimation();
+    updateHud();
+  }
+
+  function restart() {
+    game.restart();
+    renderer.setLevel(game.level);
+    updateHud();
+  }
+
+  window.addEventListener('keydown', (e) => {
+    if (e.altKey) return;
+    if ((e.ctrlKey || e.metaKey) && e.code === 'KeyZ') {
+      e.preventDefault();
+      return undo();
+    }
+    if (e.ctrlKey || e.metaKey) return;
+
+    if (SCREEN_DIRS[e.code]) {
+      e.preventDefault();
+      hideTooltip();
+      return move(SCREEN_DIRS[e.code]);
+    }
+    switch (e.code) {
+      case 'KeyZ':
+      case 'Backspace':
+        e.preventDefault();
+        return undo();
+      case 'KeyR':
+        return restart();
+      case 'KeyQ':
+        return renderer.rotate(-1);
+      case 'KeyE':
+        return renderer.rotate(1);
+    }
+  });
 
   // ------------------------------------------------------------ render loop
   function frame(t) {
@@ -27,6 +99,8 @@
     'zoom-in': () => renderer.zoomAt(1.2, renderer.cssW / 2, renderer.cssH / 2),
     'zoom-out': () => renderer.zoomAt(1 / 1.2, renderer.cssW / 2, renderer.cssH / 2),
     reset: () => renderer.resetCamera(),
+    undo: () => undo(),
+    restart: () => restart(),
     grid: (btn) => toggle(btn, 'grid'),
     heights: (btn) => toggle(btn, 'heights'),
   };
@@ -39,6 +113,7 @@
   document.querySelectorAll('[data-action]').forEach((btn) => {
     btn.addEventListener('click', () => {
       actions[btn.dataset.action](btn);
+      btn.blur(); // keep Space/Enter from re-triggering the last clicked button
       hideTooltip();
     });
   });
@@ -80,6 +155,7 @@
 
   // -------------------------------------------------------------- inspector
   const NAMES = { player: 'Player · 1×1×1', crate: 'Box · 1×1×1', heavy: 'Tall box · 1×1×2' };
+  const SUNK = { crate: 'Sunk box (floor)', heavy: 'Sunk tall box (floor)' };
 
   function inspect(e) {
     const r = canvas.getBoundingClientRect();
@@ -89,7 +165,9 @@
 
     const lines = [`<strong>Tile (${col.x}, ${col.y})</strong>`];
     lines.push(col.ground ? `Ground height: ${col.ground}` : 'Pit');
-    if (col.object) lines.push(`${NAMES[col.object.kind]} — top at ${col.top}`);
+    for (const o of col.objects) {
+      lines.push(o.sunk ? `${SUNK[o.kind]} — surface at ${o.z + o.h}` : `${NAMES[o.kind]} — top at ${o.z + o.h}`);
+    }
     if (col.target) lines.push('<span class="gold">★ Target tile</span>');
     tooltip.innerHTML = lines.join('<br>');
     tooltip.hidden = false;

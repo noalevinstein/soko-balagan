@@ -234,7 +234,82 @@ body {
   .legend ul { grid-template-columns: 1fr 1fr; }
   .legend small { display: none; }
   .hint { display: none; }
-  .toolbar { bottom: 12px; max-width: calc(100% - 24px); }
+  .toolbar { bottom: 12px; width: max-content; max-width: calc(100% - 24px); flex-wrap: wrap; justify-content: center; }
+  .toolbar .sep { display: none; }
   .toolbar button { min-width: 34px; }
   .toolbar button.text { padding: 0 8px; }
+}
+
+.stats {
+  display: flex;
+  gap: 16px;
+  margin: 8px 0 0;
+}
+
+.stats div {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.stats dt {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--muted);
+}
+
+.stats dd {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+kbd {
+  display: inline-block;
+  padding: 0 5px;
+  margin: 0 1px;
+  border-radius: 4px;
+  border: 1px solid var(--panel-border);
+  background: rgba(255, 255, 255, 0.06);
+  font: inherit;
+  font-size: 11px;
+  color: var(--text);
+}
+
+.win {
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  padding: 20px 32px;
+  text-align: center;
+  background: rgba(20, 15, 42, 0.94);
+  border-color: rgba(255, 208, 80, 0.5);
+  box-shadow: 0 0 40px rgba(255, 208, 80, 0.25);
+  pointer-events: none;
+  animation: pop 0.3s ease-out;
+}
+
+.win[hidden] {
+  display: none;
+}
+
+.win h2 {
+  margin: 0 0 4px;
+  font-size: 28px;
+  color: var(--gold);
+}
+
+.win p {
+  margin: 4px 0 0;
+}
+
+.win .muted {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+@keyframes pop {
+  from { transform: translate(-50%, -50%) scale(0.8); opacity: 0; }
 }

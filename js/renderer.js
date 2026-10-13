@@ -31,6 +31,7 @@
     player: '#ff5c8a',
     playerDark: '#9e1f4a',
     target: '255, 208, 80',
+    gold: '#ffc83a',
     outline: 'rgba(22, 14, 38, 0.42)',
     pit: '#0b0818',
   };
@@ -100,7 +101,8 @@
 
   // ------------------------------------------------------------ scene build
 
-  function buildScene(level, rot) {
+  /** `anim` maps objects that are mid-move to their starting cell {x, y, z}. */
+  function buildScene(level, rot, anim) {
     const W = level.width;
     const D = level.depth;
     const RW = rot % 2 ? D : W;
@@ -114,7 +116,8 @@
       for (let x = 0; x < W; x++) {
         const [rx, ry] = rotateCell(x, y, W, D, rot);
         const ground = level.heights[y][x];
-        const col = { x, y, rx, ry, ground, top: ground, target: level.isTarget(x, y), object: null };
+        const col = { x, y, rx, ry, ground, top: ground, target: level.isTarget(x, y), objects: [], object: null };
+        maxTop = Math.max(maxTop, ground + 2); // headroom for objects; keeps the camera fit stable
         columns.set(x + ',' + y, col);
         for (let z = 0; z < ground; z++) {
           items.push({ kind: 'ground', rx, ry, z, i: 0, h: 1, col });
@@ -125,24 +128,43 @@
 
     for (const obj of level.objects) {
       const col = columns.get(obj.x + ',' + obj.y);
-      const z0 = col.ground;
-      col.object = obj;
-      col.top = z0 + obj.h;
+      const z0 = obj.z;
+      col.objects.push(obj);
+      if (z0 + obj.h >= col.top) {
+        col.top = z0 + obj.h;
+        col.object = obj;
+      }
       const facing = obj.facing ? rotateDir(obj.facing[0], obj.facing[1], rot) : null;
+      const onTarget = col.target && obj.kind !== 'player' && !obj.sunk;
+
+      // A moving object is drawn between its start and end cells, so sort it by
+      // whichever is nearer the camera and keep it out of face culling.
+      const from = anim && anim.get(obj);
+      let fromR = null;
+      if (from) {
+        const [fx, fy] = rotateCell(from.x, from.y, W, D, rot);
+        fromR = { rx: fx, ry: fy, z: from.z };
+      }
       for (let i = 0; i < obj.h; i++) {
-        items.push({ kind: obj.kind, rx: col.rx, ry: col.ry, z: z0 + i, i, h: obj.h, z0, obj, col, facing });
-        solid.add(key(col.rx, col.ry, z0 + i));
+        const item = { kind: obj.kind, rx: col.rx, ry: col.ry, z: z0 + i, i, h: obj.h, z0, obj, col, facing, onTarget };
+        if (fromR) {
+          item.from = fromR;
+          item.sortKey = Math.max(col.rx + col.ry, fromR.rx + fromR.ry) + Math.max(z0, fromR.z) + i;
+        } else {
+          solid.add(key(col.rx, col.ry, z0 + i));
+        }
+        items.push(item);
       }
     }
 
     for (const col of columns.values()) {
-      maxTop = Math.max(maxTop, col.top);
-      if (col.target && !col.object && col.ground > 0) {
+      if (col.target && !col.objects.length && col.ground > 0) {
         items.push({ kind: 'glow', rx: col.rx, ry: col.ry, z: col.ground, i: 0, h: 1, col });
       }
     }
 
-    items.sort((a, b) => a.rx + a.ry + a.z - (b.rx + b.ry + b.z) || a.z - b.z);
+    const sortKey = (it) => (it.sortKey !== undefined ? it.sortKey : it.rx + it.ry + it.z);
+    items.sort((a, b) => sortKey(a) - sortKey(b) || a.z - b.z);
 
     const corners = [];
     for (const [cx, cy] of [[0, 0], [RW, 0], [RW, RD], [0, RD]]) {
@@ -221,9 +243,9 @@
       outline(ctx);
     },
 
-    crate(ctx, { f }) {
+    crate(ctx, { it, f }) {
       base(ctx, tone(COLORS.crate, f));
-      ctx.strokeStyle = tone(COLORS.crateDark, f);
+      ctx.strokeStyle = tone(it.onTarget ? COLORS.gold : COLORS.crateDark, f);
       ctx.lineWidth = 0.07;
       ctx.strokeRect(0.1, 0.1, 0.8, 0.8);
       ctx.lineWidth = 0.08;
@@ -242,9 +264,9 @@
       outline(ctx, 0.03);
     },
 
-    heavy(ctx, { side, f }) {
+    heavy(ctx, { it, side, f }) {
       base(ctx, tone(COLORS.heavy, f));
-      const dark = tone(COLORS.heavyDark, f);
+      const dark = tone(it.onTarget ? COLORS.gold : COLORS.heavyDark, f);
       ctx.strokeStyle = dark;
       ctx.fillStyle = dark;
       const rivet = (u, v, ru, rv) => {
@@ -357,12 +379,57 @@
       this.opts = { grid: true, heights: false };
       this.hover = null;
       this.faces = [];
+      this.anim = null;
+      this.off = [0, 0, 0];
       this.build();
       this.resize();
     }
 
     build() {
-      this.scene = buildScene(this.level, this.rot);
+      this.scene = buildScene(this.level, this.rot, this.anim && this.anim.from);
+    }
+
+    setLevel(level) {
+      this.level = level;
+      this.anim = null;
+      this.build();
+    }
+
+    /** Tween objects from their previous cells. `moves`: [{ obj, from: {x, y, z} }]. */
+    animate(moves, duration = 140) {
+      this.anim = { start: performance.now(), duration, from: new Map(moves.map((m) => [m.obj, m.from])) };
+      this.build();
+    }
+
+    finishAnimation() {
+      if (!this.anim) return;
+      this.anim = null;
+      this.build();
+    }
+
+    get animating() {
+      return !!this.anim;
+    }
+
+    /** Offset (rotated space) of a moving voxel from its resting position. */
+    animOffset(it, t) {
+      const p = Math.min(1, Math.max(0, (t - this.anim.start) / this.anim.duration));
+      const easeOut = (x) => 1 - Math.pow(1 - x, 3);
+      const dz = it.from.z - it.z0;
+      let h; // horizontal progress
+      let v; // vertical progress
+      if (dz > 0) {
+        // Falling: slide off the ledge first, then drop with gravity.
+        h = easeOut(Math.min(1, p / 0.5));
+        const q = Math.min(1, Math.max(0, (p - 0.35) / 0.65));
+        v = q * q;
+      } else {
+        // Level or climbing: lift early so we don't clip through the step.
+        h = easeOut(p);
+        v = easeOut(Math.min(1, p * 1.6));
+      }
+      const hop = it.kind === 'player' ? Math.sin(Math.PI * p) * 0.15 : 0;
+      return [(it.from.rx - it.rx) * (1 - h), (it.from.ry - it.ry) * (1 - h), dz * (1 - v) + hop];
     }
 
     rotate(dir) {
@@ -440,6 +507,8 @@
         else this.drawVoxel(it, t);
       }
       this.drawHover(v.scale, t);
+
+      if (this.anim && t - this.anim.start >= this.anim.duration) this.finishAnimation();
     }
 
     drawFootprint(scale) {
@@ -468,6 +537,7 @@
       const v0 = (it.h - 1 - it.i) / it.h;
       const v1 = (it.h - it.i) / it.h;
       const slice = multi ? [v0, v1] : null;
+      this.off = it.from && this.anim ? this.animOffset(it, t) : [0, 0, 0];
 
       if (!S.isSolid(rx, ry + 1, z)) {
         this.face(it, 'left', [rx, ry + 1, zt], [rx + 1, ry + 1, zt], [rx, ry + 1, zb], slice, LIGHT.left, t);
@@ -475,7 +545,7 @@
       if (!S.isSolid(rx + 1, ry, z)) {
         this.face(it, 'right', [rx + 1, ry + 1, zt], [rx + 1, ry, zt], [rx + 1, ry + 1, zb], slice, LIGHT.right, t);
       }
-      if (!S.isSolid(rx, ry, z + 1)) {
+      if (!S.isSolid(rx, ry, z + 1) && it.i === it.h - 1) {
         this.face(it, 'top', [rx, ry, z + 1], [rx + 1, ry, z + 1], [rx, ry + 1, z + 1], null, LIGHT.top, t);
         if (it.kind === 'ground' && this.opts.heights) this.drawHeightLabel(it);
       }
@@ -483,9 +553,10 @@
 
     face(it, side, P0, P1, P3, slice, f, t) {
       const ctx = this.ctx;
-      const a = project(...P0);
-      const b = project(...P1);
-      const c = project(...P3);
+      const [ox, oy, oz] = this.off;
+      const a = project(P0[0] + ox, P0[1] + oy, P0[2] + oz);
+      const b = project(P1[0] + ox, P1[1] + oy, P1[2] + oz);
+      const c = project(P3[0] + ox, P3[1] + oy, P3[2] + oz);
       const ux = b.x - a.x, uy = b.y - a.y;
       const vx = c.x - a.x, vy = c.y - a.y;
 
@@ -573,4 +644,5 @@
 
   SB.IsoRenderer = IsoRenderer;
   SB.RENDER = { TILE_W, TILE_H, TILE_Z, COLORS };
+  SB.rotateDir = rotateDir;
 })();
