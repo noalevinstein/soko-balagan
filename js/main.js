@@ -23,11 +23,67 @@
     hud.win.hidden = !game.won;
     if (game.won) hud.winStats.textContent = `${game.moves} moves · ${game.pushes} pushes`;
   }
-  updateHud();
 
-  // ----------------------------------------------------------------- input
-  // Arrow keys are camera-relative: in screen terms Up moves up-right,
-  // Right moves down-right, etc. — the two iso axes.
+  // --------------------------------------------------------- state machine
+  //   IDLE ──move──▶ ANIMATING ──tween done──▶ IDLE | WON
+  //   Keypresses made while ANIMATING are buffered (up to MAX_QUEUE) and
+  //   played in order, so quick taps aren't lost. Undo / restart work in
+  //   every state and clear the buffer.
+  const State = { IDLE: 'idle', ANIMATING: 'animating', WON: 'won' };
+  const MAX_QUEUE = 3;
+  let state = State.IDLE;
+  let queue = [];
+
+  const DURATION = { move: 140, push: 160, jump: 170, fall: 150 };
+
+  function enter(next) {
+    state = next;
+    document.body.dataset.state = next;
+    updateHud();
+  }
+
+  function requestMove(screenDir) {
+    if (state === State.WON) return;
+    if (state === State.ANIMATING) {
+      if (queue.length < MAX_QUEUE) queue.push(screenDir);
+      return;
+    }
+    // Arrow keys are camera-relative: Up moves up-right on screen, Right
+    // moves down-right, etc. Convert from rotated view space to world space.
+    const [dx, dy] = SB.rotateDir(screenDir[0], screenDir[1], (4 - renderer.rot) % 4);
+    const res = game.tryMove(dx, dy);
+    if (!res.moved) {
+      renderer.build(); // the player may have turned to face the obstacle
+      return;
+    }
+    // Longer drops take longer to fall.
+    const drop = Math.max(0, ...res.moves.map((m) => m.from.z - m.obj.z));
+    enter(State.ANIMATING);
+    renderer.animate(res.moves, DURATION[res.action] + 70 * drop, onMoveDone);
+  }
+
+  function onMoveDone() {
+    enter(game.won ? State.WON : State.IDLE);
+    if (state !== State.IDLE) queue = [];
+    // Blocked moves don't animate, so keep draining until one does.
+    while (state === State.IDLE && queue.length) requestMove(queue.shift());
+  }
+
+  function undo() {
+    queue = [];
+    renderer.cancelAnimation();
+    game.undo();
+    renderer.build();
+    enter(game.won ? State.WON : State.IDLE);
+  }
+
+  function restart() {
+    queue = [];
+    game.restart();
+    renderer.setLevel(game.level);
+    enter(State.IDLE);
+  }
+
   const SCREEN_DIRS = {
     ArrowUp: [0, -1], KeyW: [0, -1],
     ArrowDown: [0, 1], KeyS: [0, 1],
@@ -35,26 +91,7 @@
     ArrowRight: [1, 0], KeyD: [1, 0],
   };
 
-  function move(screenDir) {
-    renderer.finishAnimation();
-    const [dx, dy] = SB.rotateDir(screenDir[0], screenDir[1], (4 - renderer.rot) % 4);
-    const res = game.tryMove(dx, dy);
-    if (res.moved) renderer.animate(res.moves, res.moves.some((m) => m.from.z > m.obj.z) ? 260 : 140);
-    else renderer.build(); // the player may have turned to face the wall
-    updateHud();
-  }
-
-  function undo() {
-    if (game.undo()) renderer.build();
-    renderer.finishAnimation();
-    updateHud();
-  }
-
-  function restart() {
-    game.restart();
-    renderer.setLevel(game.level);
-    updateHud();
-  }
+  enter(State.IDLE);
 
   window.addEventListener('keydown', (e) => {
     if (e.altKey) return;
@@ -67,7 +104,7 @@
     if (SCREEN_DIRS[e.code]) {
       e.preventDefault();
       hideTooltip();
-      return move(SCREEN_DIRS[e.code]);
+      return requestMove(SCREEN_DIRS[e.code]);
     }
     switch (e.code) {
       case 'KeyZ':

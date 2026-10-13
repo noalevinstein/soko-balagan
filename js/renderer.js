@@ -135,7 +135,7 @@
         col.object = obj;
       }
       const facing = obj.facing ? rotateDir(obj.facing[0], obj.facing[1], rot) : null;
-      const onTarget = col.target && obj.kind !== 'player' && !obj.sunk;
+      const onTarget = col.target && obj.kind !== 'player' && obj.z === col.ground;
 
       // A moving object is drawn between its start and end cells, so sort it by
       // whichever is nearer the camera and keep it out of face culling.
@@ -391,20 +391,34 @@
 
     setLevel(level) {
       this.level = level;
-      this.anim = null;
+      this.cancelAnimation();
       this.build();
     }
 
     /** Tween objects from their previous cells. `moves`: [{ obj, from: {x, y, z} }]. */
-    animate(moves, duration = 140) {
-      this.anim = { start: performance.now(), duration, from: new Map(moves.map((m) => [m.obj, m.from])) };
+    animate(moves, duration = 140, onDone = null) {
+      const anim = { start: performance.now(), duration, onDone, from: new Map(moves.map((m) => [m.obj, m.from])) };
+      this.anim = anim;
       this.build();
+      // Game flow must not depend on frames being drawn (rAF pauses in
+      // background tabs), so a timer guarantees the tween completes.
+      setTimeout(() => {
+        if (this.anim === anim) this.finishAnimation();
+      }, duration + 20);
     }
 
+    /** Jump to the end of the current tween and fire its callback. */
     finishAnimation() {
       if (!this.anim) return;
+      const { onDone } = this.anim;
       this.anim = null;
       this.build();
+      if (onDone) onDone();
+    }
+
+    /** Drop the current tween without firing its callback (undo/restart). */
+    cancelAnimation() {
+      this.anim = null;
     }
 
     get animating() {

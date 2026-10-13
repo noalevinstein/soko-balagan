@@ -1,19 +1,28 @@
 /*
- * SokoBalagan — game rules (no rendering, no DOM).
+ * SokoBalagan — game physics and rules (no rendering, no DOM).
  *
- * Rules with height:
- *   - The player can step up or down at most one level, and never into a pit.
- *   - The player can push a box only while standing level with part of it.
- *   - A box slides flat or falls down a ledge; it can never be pushed uphill,
- *     and you can't push two boxes at once.
- *   - A box pushed into a pit drops in and "sinks": it becomes floor.
- *   - The level is solved when every target has a box on it.
+ * The world is a grid of columns. Each column has terrain of some height
+ * (0 = pit) and may hold a stack of objects. A column's *surface* is the top
+ * of whatever is highest in it. The player is 1 unit tall and stands at z.
+ *
+ * Moving one tile in a direction resolves in this order:
+ *   1. Free move  — target surface ≤ player z: step across, then fall
+ *                   (instant gravity) to whatever is below.
+ *   2. Push       — a box whose base is exactly at the player's z sits in the
+ *                   target tile, nothing is stacked on it, and the whole
+ *                   volume it would move into (footprint × height) is empty.
+ *                   The box slides, then falls with gravity; the player
+ *                   steps into the freed tile.
+ *   3. Jump       — target surface is exactly player z + 1 (terrain or the
+ *                   top of an object): climb on top of it.
+ *   4. Otherwise blocked (walls, tall stacks, two boxes in a row, ...).
+ * The level is solved when every target tile has a box resting on it.
  */
 (function () {
   'use strict';
   const SB = (window.SokoBalagan = window.SokoBalagan || {});
 
-  const MAX_STEP = 1;
+  const JUMP_HEIGHT = 1;
 
   class Game {
     constructor(def) {
@@ -37,18 +46,54 @@
       return x >= 0 && y >= 0 && x < this.level.width && y < this.level.depth;
     }
 
-    /** Height you'd stand on at (x, y): ground plus any sunk boxes. */
-    surface(x, y) {
-      let s = this.level.heights[y][x];
-      for (const o of this.level.objects) {
-        if (o.sunk && o.x === x && o.y === y) s = Math.max(s, o.z + o.h);
-      }
+    ground(x, y) {
+      return this.level.heights[y][x];
+    }
+
+    objectsAt(x, y, except = null) {
+      return this.level.objects.filter((o) => o !== except && o.x === x && o.y === y);
+    }
+
+    /** Top of the highest thing in column (x, y), ignoring `except`. */
+    surface(x, y, except = null) {
+      let s = this.ground(x, y);
+      for (const o of this.objectsAt(x, y, except)) s = Math.max(s, o.z + o.h);
       return s;
     }
 
-    /** The solid object (player or box, not a sunk box) occupying (x, y). */
-    blocker(x, y) {
-      return this.level.objects.find((o) => !o.sunk && o.x === x && o.y === y) || null;
+    /** Is the unit cell (x, y, z) filled by terrain or an object? */
+    occupied(x, y, z, except = null) {
+      if (!this.inBounds(x, y)) return true;
+      if (z < this.ground(x, y)) return true;
+      return this.objectsAt(x, y, except).some((o) => z >= o.z && z < o.z + o.h);
+    }
+
+    /** Every unit cell `obj` would fill if moved by (dx, dy). */
+    volumeAfterMove(obj, dx, dy) {
+      const cells = [];
+      const w = obj.w || 1; // footprint, for future multi-tile boxes
+      const l = obj.l || 1;
+      for (let i = 0; i < w; i++) {
+        for (let j = 0; j < l; j++) {
+          for (let k = 0; k < obj.h; k++) cells.push([obj.x + i + dx, obj.y + j + dy, obj.z + k]);
+        }
+      }
+      return cells;
+    }
+
+    /** Drop every object onto whatever is under it. */
+    applyGravity() {
+      const sorted = [...this.level.objects].sort((a, b) => a.z - b.z);
+      for (const o of sorted) {
+        let support = this.ground(o.x, o.y);
+        for (const other of this.objectsAt(o.x, o.y, o)) {
+          const top = other.z + other.h;
+          if (top <= o.z) support = Math.max(support, top);
+        }
+        o.z = support;
+        // A box resting on the bottom of a pit has filled it.
+        o.sunk = o.kind !== 'player' && this.ground(o.x, o.y) === 0 && o.z === 0;
+      }
     }
 
     snapshot() {
@@ -61,69 +106,78 @@
     }
 
     /**
-     * Try to move the player one cell in world direction (dx, dy).
-     * Returns { moved, pushed, moves: [{ obj, from }] }. The player turns to
-     * face the direction even when blocked.
+     * Try to move the player one tile in world direction (dx, dy).
+     * Returns { moved, action: 'move' | 'fall' | 'push' | 'jump' | null,
+     * moves: [{ obj, from }] } — `moves` lists every object that changed
+     * position, with where it started, for animation.
      */
     tryMove(dx, dy) {
-      const result = { moved: false, pushed: false, sunk: false, moves: [] };
+      const result = { moved: false, action: null, moves: [] };
       if (this.won) return result;
 
       const before = this.snapshot();
+      const startPos = new Map(this.level.objects.map((o) => [o, { x: o.x, y: o.y, z: o.z }]));
       const p = this.player;
-      p.facing = [dx, dy];
+      p.facing = [dx, dy]; // turn even if the move turns out to be blocked
 
       const nx = p.x + dx;
       const ny = p.y + dy;
       if (!this.inBounds(nx, ny)) return result;
+      const target = this.surface(nx, ny);
 
-      const box = this.blocker(nx, ny);
-      if (box) {
-        // Must be standing level with some part of the box.
-        if (p.z < box.z || p.z >= box.z + box.h) return result;
-        const bx = nx + dx;
-        const by = ny + dy;
-        if (!this.inBounds(bx, by) || this.blocker(bx, by)) return result;
-        const landing = this.surface(bx, by);
-        if (landing > box.z) return result; // can't push uphill
-
-        // The player will step into the cell the box leaves.
-        const stepTo = this.surface(nx, ny);
-        if (Math.abs(stepTo - p.z) > MAX_STEP) return result;
-
-        result.moves.push({ obj: box, from: { x: box.x, y: box.y, z: box.z } });
-        box.x = bx;
-        box.y = by;
-        box.z = landing;
-        if (this.level.heights[by][bx] === 0 && landing === 0) {
-          box.sunk = true;
-          result.sunk = true;
-        }
-        result.pushed = true;
+      if (target <= p.z) {
+        // 1. Free move, then fall.
+        p.x = nx;
+        p.y = ny;
+        result.action = target < p.z ? 'fall' : 'move';
+      } else if (this.canPush(nx, ny, dx, dy, p.z)) {
+        // 2. Push.
+        const box = this.objectsAt(nx, ny).find((o) => o.z === p.z);
+        box.x += dx;
+        box.y += dy;
+        p.x = nx;
+        p.y = ny;
+        result.action = 'push';
+        this.pushes++;
+      } else if (target - p.z === JUMP_HEIGHT) {
+        // 3. Jump up onto terrain or an object.
+        p.x = nx;
+        p.y = ny;
+        p.z = target;
+        result.action = 'jump';
+      } else {
+        return result; // 4. Blocked.
       }
 
-      const stepTo = this.surface(nx, ny);
-      if (stepTo === 0 || Math.abs(stepTo - p.z) > MAX_STEP) return result;
-
-      result.moves.push({ obj: p, from: { x: p.x, y: p.y, z: p.z } });
-      p.x = nx;
-      p.y = ny;
-      p.z = stepTo;
+      this.applyGravity();
+      for (const o of this.level.objects) {
+        const from = startPos.get(o);
+        if (from.x !== o.x || from.y !== o.y || from.z !== o.z) result.moves.push({ obj: o, from });
+      }
 
       this.moves++;
-      if (result.pushed) this.pushes++;
       this.history.push(before);
       this.won = this.checkWin();
       result.moved = true;
       return result;
     }
 
+    /** Can the player, standing at height z, push the box in (bx, by)? */
+    canPush(bx, by, dx, dy, z) {
+      const box = this.objectsAt(bx, by).find((o) => o.kind !== 'player' && o.z === z);
+      if (!box) return false;
+      // Nothing may ride on top of the box.
+      if (this.objectsAt(bx, by, box).some((o) => o.z >= box.z + box.h)) return false;
+      // The whole space it moves into must be empty.
+      return this.volumeAfterMove(box, dx, dy).every(([x, y, k]) => !this.occupied(x, y, k, box));
+    }
+
     checkWin() {
       for (let y = 0; y < this.level.depth; y++) {
         for (let x = 0; x < this.level.width; x++) {
           if (!this.level.isTarget(x, y)) continue;
-          const b = this.blocker(x, y);
-          if (!b || b.kind === 'player') return false;
+          const g = this.ground(x, y);
+          if (!this.objectsAt(x, y).some((o) => o.kind !== 'player' && o.z === g)) return false;
         }
       }
       return true;
