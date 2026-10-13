@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>SokoBalagan</title>
+    <meta name="description" content="SokoBalagan — a 3D isometric twist on Sokoban with chaotic controls." />
+    <link rel="stylesheet" href="css/style.css" />
+  </head>
+  <body>
+    <canvas id="stage" aria-label="Isometric view of the level"></canvas>
+
+    <header class="hud title">
+      <h1>Soko<span>Balagan</span></h1>
+      <p>Phase 1 · renderer preview</p>
+    </header>
+
+    <aside class="hud legend" aria-label="Legend">
+      <h2>Legend</h2>
+      <ul>
+        <li><i class="sw player"></i>Player <small>1×1×1</small></li>
+        <li><i class="sw crate"></i>Box <small>1×1×1</small></li>
+        <li><i class="sw heavy tall"></i>Tall box <small>1×1×2</small></li>
+        <li><i class="sw target"></i>Target</li>
+      </ul>
+      <h2>Ground height</h2>
+      <div class="ramp">
+        <span style="--c: #7cc576">1</span>
+        <span style="--c: #a3cf68">2</span>
+        <span style="--c: #d2cc63">3</span>
+        <span style="--c: #e8b35f">4</span>
+        <span style="--c: #e88d5a">5</span>
+      </div>
+    </aside>
+
+    <nav class="hud toolbar" aria-label="Camera">
+      <button data-action="rotate-left" title="Rotate view left">⟲</button>
+      <button data-action="rotate-right" title="Rotate view right">⟳</button>
+      <span class="sep"></span>
+      <button data-action="zoom-out" title="Zoom out">−</button>
+      <button data-action="zoom-in" title="Zoom in">+</button>
+      <button data-action="reset" title="Reset camera">⌂</button>
+      <span class="sep"></span>
+      <button data-action="grid" class="text" aria-pressed="true">Grid</button>
+      <button data-action="heights" class="text" aria-pressed="false">Heights</button>
+    </nav>
+
+    <p class="hud hint">Drag to pan · scroll to zoom · hover a tile to inspect</p>
+
+    <div id="tooltip" class="tooltip" hidden></div>
+
+    <script src="js/level.js"></script>
+    <script src="js/renderer.js"></script>
+    <script src="js/main.js"></script>
+  </body>
+</html>
