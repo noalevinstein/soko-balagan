@@ -64,6 +64,7 @@
         x: def.player.x,
         y: def.player.y,
         h: 1,
+        z: def.player.z,
         facing: FACING[def.player.facing || 'S'],
       },
       ...def.boxes.map((b) => ({
@@ -71,15 +72,23 @@
         x: b.x,
         y: b.y,
         h: b.h || 1,
+        z: b.z,
       })),
     ];
     objects.forEach((o, i) => (o.id = i));
 
     for (const o of objects) {
-      if (!heights[o.y] || !heights[o.y][o.x]) {
-        throw new Error(`Level "${def.name}": ${o.kind} at (${o.x},${o.y}) has no ground under it`);
+      if (o.x < 0 || o.y < 0 || o.x >= width || o.y >= depth) {
+        throw new Error(`Level "${def.name}": ${o.kind} at (${o.x},${o.y}) is off the map`);
       }
-      o.z = heights[o.y][o.x]; // base height; objects start resting on the ground
+      // An explicit z (used by generated levels, where objects can be stacked)
+      // wins; otherwise objects start resting on the ground.
+      if (o.z === undefined) {
+        if (!heights[o.y][o.x]) {
+          throw new Error(`Level "${def.name}": ${o.kind} at (${o.x},${o.y}) has no ground under it`);
+        }
+        o.z = heights[o.y][o.x];
+      }
     }
 
     return {

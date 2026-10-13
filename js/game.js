@@ -65,10 +65,17 @@
       this.restart();
     }
 
+    /** Switch to a different level definition and start it. */
+    load(def) {
+      this.def = def;
+      this.restart();
+    }
+
     restart() {
       this.controls = shuffleControls(this.rng);
       this.resolved = new Map(); // Schrödinger box id → 'crate' | 'iron'
       this.level = SB.parseLevel(this.def);
+      this.applyGravity(); // settles explicit start heights and marks sunk boxes
       this.moves = 0;
       this.pushes = 0;
       this.won = false;

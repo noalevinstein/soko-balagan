@@ -15,6 +15,9 @@
     winStats: document.getElementById('win-stats'),
     winMap: document.getElementById('win-map'),
     log: document.getElementById('input-log'),
+    levelName: document.getElementById('level-name'),
+    levelInfo: document.getElementById('level-info'),
+    showcase: document.getElementById('showcase'),
   };
   const game = new SB.Game(SB.LEVELS[0]);
   const renderer = new SB.IsoRenderer(canvas, game.level);
@@ -178,6 +181,30 @@
     enter(State.IDLE);
   }
 
+  // ------------------------------------------------------------- levels
+  function loadLevel(def, info) {
+    clearQueue();
+    game.load(def); // also reshuffles the controls
+    renderer.setLevel(game.level);
+    renderer.resetCamera();
+    hud.levelName.textContent = def.name;
+    hud.levelInfo.hidden = !info;
+    hud.levelInfo.textContent = info || '';
+    hud.showcase.hidden = def === SB.LEVELS[0];
+    resetLog();
+    enter(State.IDLE);
+  }
+
+  function generate() {
+    const t0 = performance.now();
+    const gen = SB.generateLevel();
+    const ms = Math.round(performance.now() - t0);
+    loadLevel(gen.def, `Guaranteed solvable · ${gen.pulls} reverse pulls · seed ${gen.seed} · built in ${ms} ms`);
+    logNote(`🎲 New level generated (seed ${gen.seed}).`);
+    // Handy for testing / AI agents: a known (not optimal) solution.
+    window.SokoBalagan.lastGenerated = gen;
+  }
+
   // Physical keys → logical direction keys. WASD shares the arrows'
   // scrambled mapping so it can't be used to dodge the chaos.
   const KEYS = {
@@ -211,6 +238,8 @@
         return undo();
       case 'KeyR':
         return restart();
+      case 'KeyG':
+        return generate();
       case 'KeyQ':
         return renderer.rotate(-1);
       case 'KeyE':
@@ -236,6 +265,8 @@
     reset: () => renderer.resetCamera(),
     undo: () => undo(),
     restart: () => restart(),
+    generate: () => generate(),
+    showcase: () => loadLevel(SB.LEVELS[0]),
     grid: (btn) => toggle(btn, 'grid'),
     heights: (btn) => toggle(btn, 'heights'),
   };

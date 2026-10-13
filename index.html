@@ -12,11 +12,16 @@
 
     <header class="hud title">
       <h1>Soko<span>Balagan</span></h1>
-      <p>Phase 5 · quantum chaos</p>
+      <p>Phase 6 · <span id="level-name">Showcase</span></p>
       <dl class="stats">
         <div><dt>Moves</dt><dd id="moves">0</dd></div>
         <div><dt>Pushes</dt><dd id="pushes">0</dd></div>
       </dl>
+      <div class="level-actions">
+        <button id="generate" data-action="generate" title="Generate random solvable level (G)">🎲 Generate Random Solvable Level</button>
+        <button id="showcase" data-action="showcase" class="link" hidden>Back to showcase</button>
+      </div>
+      <p id="level-info" class="level-info" hidden></p>
     </header>
 
     <aside class="hud legend" aria-label="Legend">
@@ -56,7 +61,7 @@
     </nav>
 
     <p class="hud hint">
-      <kbd>↑↓←→</kbd>/<kbd>WASD</kbd> move <em>(scrambled!)</em> · <kbd>Z</kbd> undo · <kbd>R</kbd> restart · <kbd>Q</kbd><kbd>E</kbd> rotate ·
+      <kbd>↑↓←→</kbd>/<kbd>WASD</kbd> move <em>(scrambled!)</em> · <kbd>Z</kbd> undo · <kbd>R</kbd> restart · <kbd>G</kbd> new level · <kbd>Q</kbd><kbd>E</kbd> rotate ·
       drag to pan · scroll to zoom
     </p>
 
@@ -76,6 +81,7 @@
 
     <script src="js/level.js"></script>
     <script src="js/game.js"></script>
+    <script src="js/generator.js"></script>
     <script src="js/renderer.js"></script>
     <script src="js/main.js"></script>
   </body>
