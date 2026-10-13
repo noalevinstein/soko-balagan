@@ -40,6 +40,7 @@
     push: 'pushed',
     jump: 'jumped',
     blocked: 'bumped',
+    iron: 'CLUNK! iron box',
     dropped: 'too fast — ignored',
     queued: '…',
   };
@@ -121,15 +122,28 @@
     const [dx, dy] = SB.rotateDir(screenDir[0], screenDir[1], (4 - renderer.rot) % 4);
     const res = game.tryMove(dx, dy);
     if (!res.moved) {
+      if (res.revealed === 'iron') {
+        setOutcome(entry, 'iron');
+        renderer.build();
+        renderer.shakeObject(ironAt(dx, dy));
+        return;
+      }
       setOutcome(entry, 'blocked');
       renderer.build(); // the player may have turned to face the obstacle
       return;
     }
     setOutcome(entry, res.action);
+    renderer.hallucinate(); // floor colours shift on every step
+    if (res.reshuffled) logNote('⚡ Chaos tile! Controls reshuffled.');
     // Longer drops take longer to fall.
     const drop = Math.max(0, ...res.moves.map((m) => m.from.z - m.obj.z));
     enter(State.ANIMATING);
     renderer.animate(res.moves, DURATION[res.action] + 70 * drop, onMoveDone);
+  }
+
+  function ironAt(dx, dy) {
+    const p = game.player;
+    return game.objectsAt(p.x + dx, p.y + dy).find((o) => o.kind === 'iron');
   }
 
   function onMoveDone() {
@@ -275,8 +289,15 @@
   });
 
   // -------------------------------------------------------------- inspector
-  const NAMES = { player: 'Player · 1×1×1', crate: 'Box · 1×1×1', heavy: 'Tall box · 1×1×2' };
-  const SUNK = { crate: 'Sunk box (floor)', heavy: 'Sunk tall box (floor)' };
+  // Schrödinger boxes deliberately read as plain boxes until revealed.
+  const NAMES = {
+    player: 'Player · 1×1×1',
+    crate: 'Box · 1×1×1',
+    quantum: 'Box · 1×1×1',
+    iron: 'Heavy iron box · immovable',
+    heavy: 'Tall box · 1×1×2',
+  };
+  const SUNK = { crate: 'Sunk box (floor)', quantum: 'Sunk box (floor)', iron: 'Sunk iron box (floor)', heavy: 'Sunk tall box (floor)' };
 
   function inspect(e) {
     const r = canvas.getBoundingClientRect();
@@ -290,6 +311,7 @@
       lines.push(o.sunk ? `${SUNK[o.kind]} — surface at ${o.z + o.h}` : `${NAMES[o.kind]} — top at ${o.z + o.h}`);
     }
     if (col.target) lines.push('<span class="gold">★ Target tile</span>');
+    if (col.chaos) lines.push('<span class="chaos">⚡ Chaos tile — reshuffles controls</span>');
     tooltip.innerHTML = lines.join('<br>');
     tooltip.hidden = false;
 

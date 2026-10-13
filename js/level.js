@@ -7,6 +7,8 @@
  * `terrain` rows are strings; each character is the height of that ground
  * column in unit cubes ('1'..'9'). A '.' is a pit (no ground at all).
  * Objects sit on top of whatever ground column they are placed on.
+ * Boxes with `quantum: true` are Schrödinger boxes. `chaos` lists Chaos
+ * Tiles, which reshuffle the controls when the player steps on them.
  */
 (function () {
   'use strict';
@@ -26,12 +28,17 @@
         '1111111111',
       ],
       targets: [{ x: 7, y: 4 }],
+      chaos: [
+        { x: 5, y: 5 },
+        { x: 6, y: 1 },
+      ],
       player: { x: 2, y: 5, facing: 'S' },
       boxes: [
         { x: 4, y: 2, h: 1 },
         { x: 4, y: 3, h: 1 }, // sits on the raised plateau
         { x: 8, y: 3, h: 2 },
         { x: 2, y: 2, h: 2 },
+        { x: 7, y: 6, h: 1, quantum: true }, // two pushes from the target... if it cooperates
       ],
     },
   ];
@@ -49,6 +56,7 @@
       })
     );
     const targets = new Set(def.targets.map((t) => t.x + ',' + t.y));
+    const chaos = new Set((def.chaos || []).map((t) => t.x + ',' + t.y));
 
     const objects = [
       {
@@ -58,8 +66,14 @@
         h: 1,
         facing: FACING[def.player.facing || 'S'],
       },
-      ...def.boxes.map((b) => ({ kind: b.h > 1 ? 'heavy' : 'crate', x: b.x, y: b.y, h: b.h || 1 })),
+      ...def.boxes.map((b) => ({
+        kind: b.quantum ? 'quantum' : b.h > 1 ? 'heavy' : 'crate',
+        x: b.x,
+        y: b.y,
+        h: b.h || 1,
+      })),
     ];
+    objects.forEach((o, i) => (o.id = i));
 
     for (const o of objects) {
       if (!heights[o.y] || !heights[o.y][o.x]) {
@@ -75,6 +89,7 @@
       heights,
       objects,
       isTarget: (x, y) => targets.has(x + ',' + y),
+      isChaos: (x, y) => chaos.has(x + ',' + y),
     };
   };
 })();

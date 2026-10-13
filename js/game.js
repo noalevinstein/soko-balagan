@@ -18,9 +18,17 @@
  *   4. Otherwise blocked (walls, tall stacks, two boxes in a row, ...).
  * The level is solved when every target tile has a box resting on it.
  *
- * Chaos: every time a level starts (or restarts), the four direction keys
- * are shuffled so that no key does what it says. The mapping stays fixed
- * until the next restart — undo does not reshuffle it.
+ * Chaos:
+ *   - When a level starts (or restarts) the four direction keys are shuffled
+ *     so that no key does what it says.
+ *   - Stepping onto a Chaos Tile reshuffles them again (always to a new
+ *     mapping).
+ *   - Schrödinger boxes look like normal boxes. The first push that would
+ *     move one collapses it, 50/50, into a normal box (the push goes ahead)
+ *     or a Heavy Iron Box (the push fails, and it can never be pushed).
+ *   - Randomness is never undone: undo restores positions, but revealed
+ *     boxes stay revealed and reshuffled controls stay reshuffled, so you
+ *     can't undo-and-retry for a better roll. Restart starts fresh.
  */
 (function () {
   'use strict';
@@ -29,24 +37,28 @@
   const JUMP_HEIGHT = 1;
   const DIRECTION_KEYS = ['up', 'down', 'left', 'right'];
 
+  // All 9 ways to map the 4 keys so that none maps to itself (derangements).
+  const DERANGEMENTS = (function permute(rest, prefix = []) {
+    if (!rest.length) return [prefix];
+    return rest
+      .filter((action) => action !== DIRECTION_KEYS[prefix.length])
+      .flatMap((action) => permute(rest.filter((a) => a !== action), [...prefix, action]));
+  })(DIRECTION_KEYS);
+
   /**
-   * Random key → action mapping where no key maps to itself (a derangement),
-   * e.g. { up: 'left', down: 'right', left: 'down', right: 'up' }.
+   * Random key → action mapping where no key maps to itself, e.g.
+   * { up: 'left', down: 'right', left: 'down', right: 'up' }. Never returns
+   * a mapping equal to `avoid`.
    */
-  function shuffleControls(rng = Math.random) {
-    let perm;
-    do {
-      perm = [...DIRECTION_KEYS];
-      for (let i = perm.length - 1; i > 0; i--) {
-        const j = Math.floor(rng() * (i + 1));
-        [perm[i], perm[j]] = [perm[j], perm[i]];
-      }
-    } while (perm.some((action, i) => action === DIRECTION_KEYS[i]));
+  function shuffleControls(rng = Math.random, avoid = null) {
+    const avoidKey = avoid && DIRECTION_KEYS.map((k) => avoid[k]).join();
+    const options = DERANGEMENTS.filter((perm) => perm.join() !== avoidKey);
+    const perm = options[Math.floor(rng() * options.length) % options.length];
     return Object.fromEntries(DIRECTION_KEYS.map((key, i) => [key, perm[i]]));
   }
 
   class Game {
-    /** `opts.rng` lets tests make the chaos mapping deterministic. */
+    /** `opts.rng` lets tests make all randomness deterministic. */
     constructor(def, opts = {}) {
       this.def = def;
       this.rng = opts.rng || Math.random;
@@ -55,6 +67,7 @@
 
     restart() {
       this.controls = shuffleControls(this.rng);
+      this.resolved = new Map(); // Schrödinger box id → 'crate' | 'iron'
       this.level = SB.parseLevel(this.def);
       this.moves = 0;
       this.pushes = 0;
@@ -157,6 +170,14 @@
       } else if (this.canPush(nx, ny, dx, dy, p.z)) {
         // 2. Push.
         const box = this.objectsAt(nx, ny).find((o) => o.z === p.z);
+        if (box.kind === 'quantum') {
+          // The box's nature is decided right now, at the first real push.
+          const kind = this.rng() < 0.5 ? 'crate' : 'iron';
+          this.resolved.set(box.id, kind);
+          box.kind = kind;
+          result.revealed = kind;
+          if (kind === 'iron') return result; // clunk — it doesn't budge
+        }
         box.x += dx;
         box.y += dy;
         p.x = nx;
@@ -179,6 +200,11 @@
         if (from.x !== o.x || from.y !== o.y || from.z !== o.z) result.moves.push({ obj: o, from });
       }
 
+      if (this.level.isChaos(p.x, p.y) && p.z === this.ground(p.x, p.y)) {
+        this.controls = shuffleControls(this.rng, this.controls);
+        result.reshuffled = true;
+      }
+
       this.moves++;
       this.history.push(before);
       this.won = this.checkWin();
@@ -189,7 +215,7 @@
     /** Can the player, standing at height z, push the box in (bx, by)? */
     canPush(bx, by, dx, dy, z) {
       const box = this.objectsAt(bx, by).find((o) => o.kind !== 'player' && o.z === z);
-      if (!box) return false;
+      if (!box || box.kind === 'iron') return false;
       // Nothing may ride on top of the box.
       if (this.objectsAt(bx, by, box).some((o) => o.z >= box.z + box.h)) return false;
       // The whole space it moves into must be empty.
@@ -211,6 +237,10 @@
       const snap = this.history.pop();
       if (!snap) return false;
       this.level.objects = snap.objects;
+      // Collapsed boxes stay collapsed (see "Randomness is never undone").
+      for (const o of this.level.objects) {
+        if (this.resolved.has(o.id)) o.kind = this.resolved.get(o.id);
+      }
       this.moves = snap.moves;
       this.pushes = snap.pushes;
       this.won = snap.won;

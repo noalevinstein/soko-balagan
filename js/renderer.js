@@ -28,6 +28,9 @@
     crateDark: '#8a5622',
     heavy: '#8d7be6',
     heavyDark: '#41348f',
+    iron: '#7d8796',
+    ironDark: '#2b313b',
+    chaos: '#6a2fa0',
     player: '#ff5c8a',
     playerDark: '#9e1f4a',
     target: '255, 208, 80',
@@ -66,6 +69,19 @@
     let h = Math.imul(a + 1, 374761393) ^ Math.imul(b + 7, 668265263) ^ Math.imul(c + 13, 1274126177) ^ Math.imul(d + 29, 2246822519);
     h = Math.imul(h ^ (h >>> 13), 1274126177);
     return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
+  }
+
+  /**
+   * Visual hallucination: nudge a colour by a small random amount that
+   * depends on `seed` and the tile. Purely cosmetic — a new seed after
+   * every step makes the floor shimmer so pixel-matching is unreliable.
+   */
+  function hallucinate(hex, seed, x, y) {
+    if (!seed) return hex;
+    const n = parseInt(hex.slice(1), 16);
+    const light = 1 + (hash(x, y, seed, 0) - 0.5) * 0.1; // ±5% brightness
+    const ch = (v, i) => Math.max(0, Math.min(255, Math.round(v * light + (hash(x, y, seed, i) - 0.5) * 12)));
+    return '#' + [ch((n >> 16) & 255, 1), ch((n >> 8) & 255, 2), ch(n & 255, 3)].map((v) => v.toString(16).padStart(2, '0')).join('');
   }
 
   /** Rotate a world cell by `rot` quarter turns. Grid is W×D before rotating. */
@@ -116,7 +132,14 @@
       for (let x = 0; x < W; x++) {
         const [rx, ry] = rotateCell(x, y, W, D, rot);
         const ground = level.heights[y][x];
-        const col = { x, y, rx, ry, ground, top: ground, target: level.isTarget(x, y), objects: [], object: null };
+        const col = {
+          x, y, rx, ry, ground,
+          top: ground,
+          target: level.isTarget(x, y),
+          chaos: !!(level.isChaos && level.isChaos(x, y)),
+          objects: [],
+          object: null,
+        };
         maxTop = Math.max(maxTop, ground + 2); // headroom for objects; keeps the camera fit stable
         columns.set(x + ',' + y, col);
         for (let z = 0; z < ground; z++) {
@@ -195,15 +218,26 @@
     ctx.fillRect(-BLEED, -BLEED, 1 + 2 * BLEED, 1 + 2 * BLEED);
   }
 
-  function grassColor(col) {
-    return COLORS.grass[Math.min(Math.max(col.ground, 1), COLORS.grass.length) - 1];
+  function grassColor(col, noise = 0) {
+    const c = COLORS.grass[Math.min(Math.max(col.ground, 1), COLORS.grass.length) - 1];
+    // Targets and Chaos Tiles never hallucinate, so they stay recognisable.
+    return col.target || col.chaos ? c : hallucinate(c, noise, col.x, col.y);
   }
 
   const PAINTERS = {
-    ground(ctx, { it, side, f, scene, opts, t }) {
+    ground(ctx, { it, side, f, scene, opts, t, noise }) {
       const { rx, ry, z, col } = it;
       if (side === 'top') {
-        base(ctx, tone(grassColor(col), (col.x + col.y) % 2 ? 0.95 : 1.0));
+        base(ctx, tone(grassColor(col, noise), (col.x + col.y) % 2 ? 0.95 : 1.0));
+
+        // Hallucinated texture: faint speckles that move every step.
+        if (noise && !col.target && !col.chaos) {
+          for (let k = 0; k < 4; k++) {
+            const a = hash(col.x, col.y, noise, 10 + k);
+            ctx.fillStyle = a < 0.5 ? `rgba(0,0,0,${0.03 + a * 0.08})` : `rgba(255,255,255,${0.03 + (a - 0.5) * 0.1})`;
+            ctx.fillRect(0.1 + hash(col.x, col.y, noise, 20 + k) * 0.72, 0.1 + hash(col.x, col.y, noise, 30 + k) * 0.72, 0.09, 0.09);
+          }
+        }
 
         // Ambient occlusion where taller neighbours stand behind this tile.
         const ao = (x0, y0, x1, y1, w, h) => {
@@ -223,6 +257,7 @@
         }
 
         if (col.target) paintTargetMarker(ctx, t);
+        if (col.chaos) paintChaosMarker(ctx, t);
         return;
       }
 
@@ -235,9 +270,9 @@
         ctx.fillRect(0.1 + r * 0.75, 0.3 + s * 0.6, 0.08, 0.05);
       }
       if (z === col.ground - 1) {
-        ctx.fillStyle = tone(grassColor(col), f);
+        ctx.fillStyle = tone(grassColor(col, noise), f);
         ctx.fillRect(-BLEED, -BLEED, 1 + 2 * BLEED, 0.2);
-        ctx.fillStyle = tone(grassColor(col), f * 0.75);
+        ctx.fillStyle = tone(grassColor(col, noise), f * 0.75);
         ctx.fillRect(0, 0.2, 1, 0.035);
       }
       outline(ctx);
@@ -262,6 +297,37 @@
       ctx.lineTo(0.86, 0.62);
       ctx.stroke();
       outline(ctx, 0.03);
+    },
+
+    // Schrödinger boxes are indistinguishable from crates until observed.
+    quantum(ctx, args) {
+      PAINTERS.crate(ctx, args);
+    },
+
+    iron(ctx, { it, side, f }) {
+      base(ctx, tone(COLORS.iron, f));
+      if (side === 'top') {
+        ctx.fillStyle = tone(COLORS.iron, 1.12);
+        ctx.fillRect(0.18, 0.18, 0.64, 0.64);
+      }
+      const dark = tone(it.onTarget ? COLORS.gold : COLORS.ironDark, f);
+      ctx.strokeStyle = dark;
+      ctx.lineWidth = 0.1;
+      ctx.strokeRect(0.07, 0.07, 0.86, 0.86);
+      ctx.lineWidth = 0.06;
+      ctx.beginPath();
+      ctx.moveTo(0.12, 0.12);
+      ctx.lineTo(0.88, 0.88);
+      ctx.moveTo(0.88, 0.12);
+      ctx.lineTo(0.12, 0.88);
+      ctx.stroke();
+      ctx.fillStyle = tone(COLORS.iron, f * 1.2);
+      for (const [u, v] of [[0.16, 0.16], [0.84, 0.16], [0.16, 0.84], [0.84, 0.84]]) {
+        ctx.beginPath();
+        ctx.arc(u, v, 0.045, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      outline(ctx, 0.035);
     },
 
     heavy(ctx, { it, side, f }) {
@@ -366,6 +432,30 @@
     ctx.restore();
   }
 
+  function paintChaosMarker(ctx, t) {
+    const pulse = 0.5 + 0.5 * Math.sin(t / 260);
+    ctx.save();
+    ctx.fillStyle = tone(COLORS.chaos, 0.9 + 0.2 * pulse);
+    ctx.fillRect(0.08, 0.08, 0.84, 0.84);
+    ctx.strokeStyle = `rgba(255,120,240,${0.5 + 0.4 * pulse})`;
+    ctx.lineWidth = 0.04;
+    ctx.setLineDash([0.08, 0.06]);
+    ctx.lineDashOffset = -t / 900;
+    ctx.strokeRect(0.14, 0.14, 0.72, 0.72);
+    ctx.setLineDash([]);
+    // Lightning bolt.
+    ctx.shadowColor = 'rgba(255,225,77,0.9)';
+    ctx.shadowBlur = 4 + 8 * pulse;
+    ctx.fillStyle = '#ffe14d';
+    ctx.beginPath();
+    [[0.6, 0.16], [0.3, 0.54], [0.48, 0.54], [0.38, 0.86], [0.72, 0.44], [0.53, 0.44], [0.66, 0.16]].forEach(([u, v], i) =>
+      i ? ctx.lineTo(u, v) : ctx.moveTo(u, v)
+    );
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+  }
+
   // --------------------------------------------------------------- renderer
 
   class IsoRenderer {
@@ -381,6 +471,8 @@
       this.faces = [];
       this.anim = null;
       this.off = [0, 0, 0];
+      this.noise = 0; // hallucination seed; 0 = clean
+      this.shake = null;
       this.build();
       this.resize();
     }
@@ -414,6 +506,16 @@
       this.anim = null;
       this.build();
       if (onDone) onDone();
+    }
+
+    /** New random floor shimmer (call on every step). */
+    hallucinate() {
+      this.noise = 1 + Math.floor(Math.random() * 1e9);
+    }
+
+    /** Briefly rattle an object in place (e.g. a box revealing itself as iron). */
+    shakeObject(obj) {
+      this.shake = { obj, start: performance.now() };
     }
 
     /** Drop the current tween without firing its callback (undo/restart). */
@@ -552,6 +654,10 @@
       const v1 = (it.h - it.i) / it.h;
       const slice = multi ? [v0, v1] : null;
       this.off = it.from && this.anim ? this.animOffset(it, t) : [0, 0, 0];
+      if (this.shake && this.shake.obj.id === it.obj?.id) {
+        const dt = t - this.shake.start;
+        if (dt < 400) this.off = [this.off[0] + Math.sin(dt / 20) * 0.07 * (1 - dt / 400), this.off[1], this.off[2]];
+      }
 
       if (!S.isSolid(rx, ry + 1, z)) {
         this.face(it, 'left', [rx, ry + 1, zt], [rx + 1, ry + 1, zt], [rx, ry + 1, zb], slice, LIGHT.left, t);
@@ -582,7 +688,7 @@
         ctx.rect(-0.02, slice[0] - 0.01, 1.04, slice[1] - slice[0] + 0.02);
         ctx.clip();
       }
-      PAINTERS[it.kind](ctx, { it, side, f, t, scene: this.scene, opts: this.opts });
+      PAINTERS[it.kind](ctx, { it, side, f, t, scene: this.scene, opts: this.opts, noise: this.noise });
       ctx.restore();
 
       const [s0, s1] = slice || [0, 1];
